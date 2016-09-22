@@ -11,5 +11,13 @@
     <f:entry title="Statsd port" field="port" description="port of statd server">
       <f:textbox name="port" />
     </f:entry>
+
+    <f:entry title="Statsd Execution Interval (seconds)" field="scheduleSeconds" description="Interval to gather periodic stats">
+      <f:textbox name="scheduleSeconds" />
+    </f:entry>
+
+    <f:entry title="Statsd Build Activity window (seconds)" field="buildSeconds" description="Window to gather aggregated build stats">
+      <f:textbox name="buildSeconds" />
+    </f:entry>
   </f:section>
 </j:jelly>

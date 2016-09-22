@@ -2,18 +2,16 @@ package org.jenkinsci.plugins.statsd;
 
 import hudson.model.Run;
 import hudson.Extension;
-import hudson.model.*;
+import hudson.model.TaskListener;
 import hudson.model.listeners.RunListener;
-import jenkins.model.GlobalConfiguration;
-import net.sf.json.JSONObject;
-import org.kohsuke.stapler.StaplerRequest;
 
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static hudson.model.Result.*;
+import static org.jenkinsci.plugins.statsd.StatsdUtils.sanitizeKey;
+
 
 /**
  * Send jenkins result and duration of Jenkins jobs to a statsd server
@@ -28,7 +26,7 @@ public class StatsdListener extends RunListener<Run> {
         StatsdConfig config = StatsdConfig.get();
 
         if (config.getHost() == "" || config.getPort() == 0) {
-            // statsd is not configured
+            LOGGER.log(Level.WARNING, "statsd pulugin not configured");
             return;
         }
 
@@ -36,17 +34,18 @@ public class StatsdListener extends RunListener<Run> {
         String host = config.getHost();
         int port = config.getPort();
 
-        String jobName = r.getParent().getFullName().toString();
+        String jobName = r.getParent().getFullName();
         String result = r.getResult().toString();
         long duration = r.getDuration();
 
-        // sanitize jobName for statsd/graphite. based on: https://github.com/etsy/statsd/blob/v0.5.0/stats.js#L110-113
-        jobName = jobName.replaceAll("\\s+", "_");
-        jobName = jobName.replaceAll("\\.", "_");
-        jobName = jobName.replaceAll("\\/", "-");
-        jobName = jobName.replaceAll("[^a-zA-Z_\\-0-9]", "");
+        jobName = sanitizeKey(jobName);
 
-        String metricName = prefix + '.' + jobName + '.' + result;
+        String metricName;
+        if( prefix.isEmpty() ) {
+            metricName = String.join(".", "job", jobName, result);
+        } else {
+            metricName = String.join(".", prefix, "job", jobName, result);
+        }
 
         LOGGER.log(Level.INFO, "StatsdListener: config: " + config);
         LOGGER.log(Level.INFO, "StatsdListener: job: " + jobName + ", result: " + result +
@@ -62,5 +61,4 @@ public class StatsdListener extends RunListener<Run> {
             LOGGER.log(Level.WARNING, "StatsdListener IOException: ", e);
         }
     }
-
 }

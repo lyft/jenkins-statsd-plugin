@@ -33,7 +33,6 @@ package org.jenkinsci.plugins.statsd;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.Locale;
@@ -48,7 +47,7 @@ public class StatsdClient {
     private final InetSocketAddress _address;
     private final DatagramChannel _channel;
 
-    public StatsdClient(String host, int port) throws UnknownHostException, IOException {
+    public StatsdClient(String host, int port) throws IOException {
         this(InetAddress.getByName(host), port);
     }
 
@@ -57,8 +56,16 @@ public class StatsdClient {
         _channel = DatagramChannel.open();
     }
 
+    public boolean timing(String key, long value) {
+        return timing(key, value, 1.0);
+    }
+
     public boolean timing(String key, int value) {
         return timing(key, value, 1.0);
+    }
+
+    public boolean timing(String key, long value, double sampleRate) {
+        return send(sampleRate, String.format(Locale.ENGLISH, "%s:%d|ms", key, value));
     }
 
     public boolean timing(String key, int value, double sampleRate) {

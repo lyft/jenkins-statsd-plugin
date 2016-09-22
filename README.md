@@ -8,11 +8,19 @@ add this plugin to each job.
 
 Upon each job completion, the following metrics will be sent:
 
-    statsd.increment ('PREFIX.job_name.RESULT', 1)
-    statsd.timing    ('PREFIX.job_name.RESULT', DURATION)
+    statsd.increment ('PREFIX.job.job_name.RESULT', 1)
+    statsd.timing    ('PREFIX.job.job_name.RESULT', DURATION)
 
 Where RESULT is a valid Jenkins build status, eg: SUCCESS, FAILURE, etc. Duration
 is the time taken to run the job.
+
+System wide metrics are also captured at a configurable periodic interval:
+
+    statsd.gauge ( executors.total )
+    statsd.gauge ( executors.busy )
+    statsd.gauge ( builds.started )
+    statsd.gauge ( builds.queue.length )
+    statsd.timing ( builds.queue.wait_time.job_name )
 
 Installation
 ------------
@@ -30,6 +38,8 @@ Configuration
     - prefix (optional)
     - host (required)
     - port (required)
+    - interval for periodic metrics capture ( defaults to 60s )
+    - window for build activity metric ( defaults to 60s )
 
 Contributing
 ------------
