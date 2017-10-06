@@ -60,3 +60,5 @@ License
 Copyright 2012 Joe Miller <https://github.com/joemiller>
 
 Released under the MIT license, see LICENSE for details.
+
+test
