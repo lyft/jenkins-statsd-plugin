@@ -6,7 +6,9 @@ import hudson.Extension;
 
 import java.io.IOException;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -28,11 +30,17 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
 
         StatsdConfig config = StatsdConfig.get();
 
-        Map<String,Long> queueItems = new HashMap<>();
+        Map<String, List<Long>> queueItems = new HashMap<>();
+        long queueDepth = 0;
         long now = System.currentTimeMillis();
 
         for( Queue.Item item : Hudson.getInstance().getQueue().getItems() ) {
-            queueItems.put(sanitizeKey(item.task.getName()),now-item.getInQueueSince());
+            String name = sanitizeKey(item.task.getName());
+            if (!queueItems.containsKey(name)) {
+                queueItems.put(name, new ArrayList<Long>());
+            }
+            queueItems.get(name).add(now - item.getInQueueSince());
+            ++queueDepth;
         }
 
         int buildCount = Hudson.getInstance().getView("All").getBuilds().byTimestamp(now - config.getBuildActivitySeconds() * 1000, now).size();
@@ -49,12 +57,12 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             }
         }
         LOGGER.log(Level.INFO, "Total executors: {0} Busy Executors {1} Completed Builds {2} Queue Depth {3}",
-                new Object[]{totalExecutors, busyExecutors, buildCount, queueItems.size()});
+                new Object[]{totalExecutors, busyExecutors, buildCount, queueDepth});
 
         sendMetrics(queueItems, buildCount, totalExecutors, busyExecutors);
     }
 
-    private void sendMetrics(Map<String, Long> queueItems, int buildCount, int totalExecutors, int busyExecutors) {
+    private void sendMetrics(Map<String, List<Long>> queueItems, int buildCount, int totalExecutors, int busyExecutors) {
 
         StatsdConfig config = StatsdConfig.get();
 
@@ -77,8 +85,10 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             statsd.gauge(prefix + "executors.total", totalExecutors);
             statsd.gauge(prefix + "builds.started", buildCount);
             statsd.gauge(prefix + "builds.queue.length", queueItems.size());
-            for( Map.Entry<String, Long> entry : queueItems.entrySet()) {
-                statsd.timing(prefix + "builds.queue.wait_time." + entry.getKey(), entry.getValue());
+            for( Map.Entry<String, List<Long>> entry : queueItems.entrySet()) {
+                for( Long queueWaitTime : entry.getValue()) {
+                    statsd.timing(prefix + "builds.queue.wait_time." + entry.getKey(), queueWaitTime);
+                }
             }
         } catch (UnknownHostException e) {
             LOGGER.log(Level.WARNING, "StatsdListener Unknown Host: ", e);
