@@ -59,10 +59,10 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
         LOGGER.log(Level.INFO, "Total executors: {0} Busy Executors {1} Completed Builds {2} Queue Depth {3}",
                 new Object[]{totalExecutors, busyExecutors, buildCount, queueDepth});
 
-        sendMetrics(queueItems, buildCount, totalExecutors, busyExecutors);
+        sendMetrics(queueItems, queueDepth, buildCount, totalExecutors, busyExecutors);
     }
 
-    private void sendMetrics(Map<String, List<Long>> queueItems, int buildCount, int totalExecutors, int busyExecutors) {
+    private void sendMetrics(Map<String, List<Long>> queueItems, long queueDepth, int buildCount, int totalExecutors, int busyExecutors) {
 
         StatsdConfig config = StatsdConfig.get();
 
@@ -84,7 +84,7 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             statsd.gauge(prefix + "executors.busy", busyExecutors);
             statsd.gauge(prefix + "executors.total", totalExecutors);
             statsd.gauge(prefix + "builds.started", buildCount);
-            statsd.gauge(prefix + "builds.queue.length", queueItems.size());
+            statsd.gauge(prefix + "builds.queue.length", queueDepth);
             for( Map.Entry<String, List<Long>> entry : queueItems.entrySet()) {
                 for( Long queueWaitTime : entry.getValue()) {
                     statsd.timing(prefix + "builds.queue.wait_time." + entry.getKey(), queueWaitTime);
