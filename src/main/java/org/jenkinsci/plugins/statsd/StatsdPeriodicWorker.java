@@ -24,6 +24,7 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
     enum ExecutorState {
         BUSY,
         IDLE,
+        OFFLINE,
     };
 
     enum ExecutorType {
@@ -70,24 +71,37 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             if (computer.getDisplayName().equals("master")) {
                 executorType = ExecutorType.VIRTUAL;
             }
+            boolean isOnline = computer.isOnline();
             for( Executor e : computer.getExecutors() ) {
-                ExecutorState executorState =
-                    e.isBusy() ? ExecutorState.BUSY : ExecutorState.IDLE;
+                ExecutorState executorState;
+                if (!isOnline) {
+                    executorState = ExecutorState.OFFLINE;
+                } else if (e.isBusy()) {
+                    executorState = ExecutorState.BUSY;
+                } else {
+                    executorState = ExecutorState.IDLE;
+                }
                 Integer count = executors.get(executorType).get(executorState);
                 executors.get(executorType).put(executorState, count + 1);
             }
         }
         LOGGER.log(
             Level.INFO,
-            "Total executors: {0} Busy Executors {1} Virtual executors {2} " +
-            "Busy virtual executors {3} Completed Builds {4} Queue Depth {5}",
+            "Total executors: {0} Busy Executors {1} Offline executors {2} " +
+            "Virtual executors {3} Busy virtual executors {4} " +
+            "Offline virtual executors {5} " +
+            "Completed Builds {6} Queue Depth {7}",
              new Object[]{
                  executors.get(ExecutorType.WORKER).get(ExecutorState.IDLE) +
+                 executors.get(ExecutorType.WORKER).get(ExecutorState.BUSY) +
+                 executors.get(ExecutorType.WORKER).get(ExecutorState.OFFLINE),
                  executors.get(ExecutorType.WORKER).get(ExecutorState.BUSY),
-                 executors.get(ExecutorType.WORKER).get(ExecutorState.BUSY),
+                 executors.get(ExecutorType.WORKER).get(ExecutorState.OFFLINE),
                  executors.get(ExecutorType.VIRTUAL).get(ExecutorState.IDLE) +
+                 executors.get(ExecutorType.VIRTUAL).get(ExecutorState.BUSY) +
+                 executors.get(ExecutorType.VIRTUAL).get(ExecutorState.OFFLINE),
                  executors.get(ExecutorType.VIRTUAL).get(ExecutorState.BUSY),
-                 executors.get(ExecutorType.VIRTUAL).get(ExecutorState.BUSY),
+                 executors.get(ExecutorType.VIRTUAL).get(ExecutorState.OFFLINE),
                  buildCount,
                  queueDepth,
             }
@@ -124,12 +138,16 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             StatsdClient statsd = new StatsdClient(host, port);
             statsd.gauge(prefix + "executors.busy", worker.get(ExecutorState.BUSY));
             statsd.gauge(prefix + "executors.idle", worker.get(ExecutorState.IDLE));
+            statsd.gauge(prefix + "executors.offline", worker.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "executors.total",
-                         worker.get(ExecutorState.BUSY) + worker.get(ExecutorState.IDLE));
+                         worker.get(ExecutorState.BUSY) + worker.get(ExecutorState.IDLE) +
+                         worker.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "executors.master.busy", virtual.get(ExecutorState.BUSY));
             statsd.gauge(prefix + "executors.master.idle", virtual.get(ExecutorState.IDLE));
+            statsd.gauge(prefix + "executors.master.offline", virtual.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "executors.master.total",
-                         virtual.get(ExecutorState.BUSY) + virtual.get(ExecutorState.IDLE));
+                         virtual.get(ExecutorState.BUSY) + virtual.get(ExecutorState.IDLE) +
+                         virtual.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "builds.started", buildCount);
             statsd.gauge(prefix + "builds.queue.length", queueDepth);
             for( Map.Entry<String, List<Long>> entry : queueItems.entrySet()) {
