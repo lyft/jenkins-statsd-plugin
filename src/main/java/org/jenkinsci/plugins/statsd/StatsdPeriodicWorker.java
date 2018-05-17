@@ -20,10 +20,12 @@ import static org.jenkinsci.plugins.statsd.StatsdUtils.sanitizeKey;
 public final class StatsdPeriodicWorker extends PeriodicWork {
 
     private static final Logger LOGGER = Logger.getLogger(StatsdPeriodicWorker.class.getName());
+    private static final String DRAINING_MARKER = "scaledown";
 
     enum ExecutorState {
         BUSY,
         IDLE,
+        DRAINING,
         OFFLINE,
     };
 
@@ -75,7 +77,11 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             for( Executor e : computer.getExecutors() ) {
                 ExecutorState executorState;
                 if (!isOnline) {
-                    executorState = ExecutorState.OFFLINE;
+                    if (computer.getOfflineCause().equals(DRAINING_MARKER)) {
+                        executorState = ExecutorState.DRAINING;
+                    } else {
+                        executorState = ExecutorState.OFFLINE;
+                    }
                 } else if (e.isBusy()) {
                     executorState = ExecutorState.BUSY;
                 } else {
@@ -87,20 +93,23 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
         }
         LOGGER.log(
             Level.INFO,
-            "Total executors: {0} Busy Executors {1} Offline executors {2} " +
-            "Virtual executors {3} Busy virtual executors {4} " +
-            "Offline virtual executors {5} " +
-            "Completed Builds {6} Queue Depth {7}",
+            "Executors: Total {0} Busy {1} Draining {2} Offline {3} " +
+            "Virtual executors: Total {4} Busy {5} Draining {6} Offline {7} " +
+            "Completed Builds {8} Queue Depth {9}",
              new Object[]{
                  executors.get(ExecutorType.WORKER).get(ExecutorState.IDLE) +
                  executors.get(ExecutorType.WORKER).get(ExecutorState.BUSY) +
+                 executors.get(ExecutorType.WORKER).get(ExecutorState.DRAINING) +
                  executors.get(ExecutorType.WORKER).get(ExecutorState.OFFLINE),
                  executors.get(ExecutorType.WORKER).get(ExecutorState.BUSY),
+                 executors.get(ExecutorType.WORKER).get(ExecutorState.DRAINING),
                  executors.get(ExecutorType.WORKER).get(ExecutorState.OFFLINE),
                  executors.get(ExecutorType.VIRTUAL).get(ExecutorState.IDLE) +
                  executors.get(ExecutorType.VIRTUAL).get(ExecutorState.BUSY) +
+                 executors.get(ExecutorType.VIRTUAL).get(ExecutorState.DRAINING) +
                  executors.get(ExecutorType.VIRTUAL).get(ExecutorState.OFFLINE),
                  executors.get(ExecutorType.VIRTUAL).get(ExecutorState.BUSY),
+                 executors.get(ExecutorType.VIRTUAL).get(ExecutorState.DRAINING),
                  executors.get(ExecutorType.VIRTUAL).get(ExecutorState.OFFLINE),
                  buildCount,
                  queueDepth,
@@ -138,16 +147,18 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             StatsdClient statsd = new StatsdClient(host, port);
             statsd.gauge(prefix + "executors.busy", worker.get(ExecutorState.BUSY));
             statsd.gauge(prefix + "executors.idle", worker.get(ExecutorState.IDLE));
+            statsd.gauge(prefix + "executors.draining", worker.get(ExecutorState.DRAINING));
             statsd.gauge(prefix + "executors.offline", worker.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "executors.total",
                          worker.get(ExecutorState.BUSY) + worker.get(ExecutorState.IDLE) +
-                         worker.get(ExecutorState.OFFLINE));
+                         worker.get(ExecutorState.DRAINING) + worker.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "executors.master.busy", virtual.get(ExecutorState.BUSY));
             statsd.gauge(prefix + "executors.master.idle", virtual.get(ExecutorState.IDLE));
+            statsd.gauge(prefix + "executors.master.draining", virtual.get(ExecutorState.DRAINING));
             statsd.gauge(prefix + "executors.master.offline", virtual.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "executors.master.total",
                          virtual.get(ExecutorState.BUSY) + virtual.get(ExecutorState.IDLE) +
-                         virtual.get(ExecutorState.OFFLINE));
+                         virtual.get(ExecutorState.DRAINING) + virtual.get(ExecutorState.OFFLINE));
             statsd.gauge(prefix + "builds.started", buildCount);
             statsd.gauge(prefix + "builds.queue.length", queueDepth);
             for( Map.Entry<String, List<Long>> entry : queueItems.entrySet()) {
