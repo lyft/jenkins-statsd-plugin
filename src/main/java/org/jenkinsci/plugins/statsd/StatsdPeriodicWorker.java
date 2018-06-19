@@ -1,6 +1,7 @@
 package org.jenkinsci.plugins.statsd;
 
 import hudson.model.*;
+import hudson.slaves.OfflineCause;
 import hudson.util.TimeUnit2;
 import hudson.Extension;
 
@@ -20,7 +21,9 @@ import static org.jenkinsci.plugins.statsd.StatsdUtils.sanitizeKey;
 public final class StatsdPeriodicWorker extends PeriodicWork {
 
     private static final Logger LOGGER = Logger.getLogger(StatsdPeriodicWorker.class.getName());
+    private static final String DOCKER_MARKER = "docker";
     private static final String DRAINING_MARKER = "scaledown";
+    private static final String ENSURE_NODE_LOCK_MARKER = "ensure node lock";
 
     enum ExecutorState {
         BUSY,
@@ -28,6 +31,11 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
         DRAINING,
         OFFLINE,
     };
+
+    enum OfflineReason {
+        DOCKER,
+        ENSURE_NODE_LOCK,
+    }
 
     enum ExecutorType {
         VIRTUAL,
@@ -68,6 +76,11 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             }
         }
 
+        EnumMap<OfflineReason, Integer> reasons = new EnumMap<>(OfflineReason.class);
+        for (OfflineReason reason : OfflineReason.values()) {
+            reasons.put(reason, 0);
+        }
+
         for( Computer computer : Hudson.getInstance().getComputers() ) {
             ExecutorType executorType = ExecutorType.WORKER;
             if (computer.getDisplayName().equals("master")) {
@@ -77,10 +90,28 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             for( Executor e : computer.getExecutors() ) {
                 ExecutorState executorState;
                 if (!isOnline) {
-                    if (computer.getOfflineCause().equals(DRAINING_MARKER)) {
-                        executorState = ExecutorState.DRAINING;
-                    } else {
+                    OfflineCause cause = computer.getOfflineCause();
+                    if (cause == null) {
                         executorState = ExecutorState.OFFLINE;
+                    } else {
+                        String description = cause.toString();
+                        if (description == null) {
+                            executorState = ExecutorState.OFFLINE;
+                        } else {
+                            if (description.contains(DRAINING_MARKER)) {
+                                executorState = ExecutorState.DRAINING;
+                            } else if (description.contains(DOCKER_MARKER)) {
+                                Integer count = reasons.get(OfflineReason.DOCKER);
+                                reasons.put(OfflineReason.DOCKER, count + 1);
+                                executorState = ExecutorState.OFFLINE;
+                            } else if (description.contains(ENSURE_NODE_LOCK_MARKER)) {
+                                Integer count = reasons.get(OfflineReason.ENSURE_NODE_LOCK);
+                                reasons.put(OfflineReason.ENSURE_NODE_LOCK, count + 1);
+                                executorState = ExecutorState.OFFLINE;
+                            } else {
+                                executorState = ExecutorState.OFFLINE;
+                            }
+                        }
                     }
                 } else if (e.isBusy()) {
                     executorState = ExecutorState.BUSY;
@@ -116,14 +147,15 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             }
         );
 
-        sendMetrics(queueItems, queueDepth, buildCount, executors);
+        sendMetrics(queueItems, queueDepth, buildCount, executors, reasons);
     }
 
     private void sendMetrics(
         Map<String, List<Long>> queueItems,
         long queueDepth,
         int buildCount,
-        EnumMap<ExecutorType, EnumMap<ExecutorState, Integer>> executors
+        EnumMap<ExecutorType, EnumMap<ExecutorState, Integer>> executors,
+        EnumMap<OfflineReason, Integer> reasons
     ) {
 
         StatsdConfig config = StatsdConfig.get();
@@ -152,6 +184,8 @@ public final class StatsdPeriodicWorker extends PeriodicWork {
             statsd.gauge(prefix + "executors.total",
                          worker.get(ExecutorState.BUSY) + worker.get(ExecutorState.IDLE) +
                          worker.get(ExecutorState.DRAINING) + worker.get(ExecutorState.OFFLINE));
+            statsd.gauge(prefix + "executors.docker", reasons.get(OfflineReason.DOCKER));
+            statsd.gauge(prefix + "executors.ensure_node_lock", reasons.get(OfflineReason.ENSURE_NODE_LOCK));
             statsd.gauge(prefix + "executors.master.busy", virtual.get(ExecutorState.BUSY));
             statsd.gauge(prefix + "executors.master.idle", virtual.get(ExecutorState.IDLE));
             statsd.gauge(prefix + "executors.master.draining", virtual.get(ExecutorState.DRAINING));

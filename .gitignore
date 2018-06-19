@@ -2,3 +2,4 @@ Attic
 target
 work
 *.iml
+.idea/
